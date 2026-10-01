@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>菲林工坊 · FilmMatch 工作台</title>
+<!--
+  FilmMatch MVP+P1 工作台（PRD 五步流程 ①传帧 ②选参考 ③出配方 ④调配方 ⑤保存/导出）
+  模块：src/main.ts（装配） + src/ui/*（配方/图库/存储/分享码/指南/标注编辑器） + src/share（分享码） + src/engine（色彩匹配） + src/film（质感渲染）
+  风格延续 spike④：暗房放映室（深色 + 琥珀 + 胶片齿孔）
+  设计令牌（颜色/字号/间距/圆角/阴影/动效）唯一定义处 = src/ui/tokens.ts（运行时注入 :root 变量）；
+  本文件与各 ui/*.ts 的样式只引用 var(--…)，不写死色值/字号（tokens.test.ts 扫描守护）。
+  URL 辅助（测试/演示）：#src=neon|dusk|chart  #ref=lib:<id>|stock:<pid>  #mode=0|1|2|3  #split=0.5  #ui=simple|advanced
+                        #demo=frame|refs|adjust|split|export|stockwall|import|guide|guideoff|annotate|shareloop
+                              |overlay（R16 预览浮层同步态）|groupreset[&reset=1]（R16 组级重置前后）
+                              |matrix|matrixstd|tagfilter（R2：矩阵档位对比 / 标签筛选）
+                              |batch|batchb（F14 批量匹配）
+                              |dctl|dctl-rcm（R4 DCTL 生成页：YRGB×fl06 / RCM×fl05）
+                              |drx（R5 节点包导出区：搭建清单 + 实验性 .drx）
+                              |xmpimport[&apply=brand]（R15 XMP 预设导入：合成 fixture → 估算起点卡 → 风格卡 tab）
+                        #view=workbench|batch|dctl  #smoke=1（端到端冒烟）
+-->
+<style>
+  *{box-sizing:border-box; margin:0; padding:0}
+  html,body{height:100%}
+  body{
+    background:var(--bg); color:var(--text);
+    font:var(--fs-base)/1.5 var(--font-sans);
+    display:flex; flex-direction:column; overflow:hidden;
+  }
+  :focus-visible{outline:2px solid var(--amber); outline-offset:1px}
+  /* ---------- 顶栏：品牌 + 五步流程 ---------- */
+  header{
+    display:flex; align-items:center; gap:var(--sp6); padding:var(--sp4) var(--sp7);
+    background:var(--panel); border-bottom:1px solid var(--line); flex:0 0 auto;
+  }
+  header .logo{font-weight:700; color:var(--amber); letter-spacing:2px; font-size:var(--fs-lg)}
+  header .sub{color:var(--dim)}
+  header .spacer{flex:1}
+  /* 页面导航（工作台 / 批量匹配 / DCTL 生成）：与 .step 同高，保证顶栏高度不变 */
+  .viewnav{display:flex; gap:var(--sp2); margin-right:var(--sp3)}
+  .viewnav button{
+    font-size:var(--fs-sm); padding:3px var(--sp5); border-radius:var(--r-pill); border:1px solid var(--line);
+    background:transparent; color:var(--dim); white-space:nowrap; cursor:pointer; transition:all var(--dur-fast);
+  }
+  .viewnav button.on{border-color:var(--amber); color:var(--amber2); background:var(--amber-a08)}
+  .steps{display:flex; gap:var(--sp2)}
+  .step{
+    font-size:var(--fs-sm); padding:3px 9px; border-radius:var(--r-pill); border:1px solid var(--line);
+    color:var(--dim); white-space:nowrap; user-select:none; transition:all var(--dur-fast);
+  }
+  .step.on{border-color:var(--amber); color:var(--amber2); background:var(--amber-a08)}
+  .stat{color:var(--dim); font-variant-numeric:tabular-nums; white-space:nowrap; font-size:var(--fs-sm)}
+  .stat b{color:var(--text); font-weight:600}
+  /* ---------- 主体 ---------- */
+  main{flex:1; display:flex; min-height:0}
+  /* 多视图：每个 .view 自身是 flex 容器，非活动视图 display:none（不参与布局，保证既有截图区域不变） */
+  .view{flex:1; display:flex; min-width:0; min-height:0}
+  .view[hidden]{display:none}
+  .viewpage{flex:1; overflow-y:auto; padding:var(--sp7) 18px 40px; min-width:0}
+  .viewpage h2{font-size:var(--fs-xl); color:var(--amber2); margin:0 0 var(--sp2)}
+  .viewpage .lede{color:var(--dim); margin-bottom:var(--sp6); line-height:1.7}
+  .card-blk{border:1px solid var(--line); border-radius:var(--r-xl); background:var(--panel); padding:var(--sp5) var(--sp6); margin:var(--sp5) 0}
+  .card-blk h3{font-size:var(--fs-base); color:var(--text); margin:0 0 var(--sp3)}
+  #stage{
+    flex:1; min-width:0; display:flex; align-items:center; justify-content:center;
+    padding:16px; position:relative; overflow:auto;
+  }
+  #filmstrip{
+    position:relative; display:inline-block; line-height:0;
+    background:var(--canvas); padding:14px var(--sp5); border-radius:var(--r-md);
+    box-shadow:var(--sh-strip);
+  }
+  /* 胶片齿孔 */
+  #filmstrip::before,#filmstrip::after{
+    content:""; position:absolute; left:0; right:0; height:10px;
+    background:repeating-linear-gradient(90deg,
+      transparent 0 7px, var(--hole) 7px 15px, transparent 15px 22px);
+  }
+  #filmstrip::before{top:2px} #filmstrip::after{bottom:2px}
+  #glcanvas{max-width:100%; max-height:calc(100vh - 150px); display:block; background:var(--canvas)}
+  /* 空态（无帧） */
+  #empty{
+    position:absolute; inset:14px var(--sp5); display:flex; flex-direction:column; gap:var(--sp6);
+    align-items:center; justify-content:center; z-index:3; text-align:center;
+  }
+  #empty .big{font-size:var(--fs-xl); color:var(--text)}
+  #empty .hint{color:var(--dim); font-size:var(--fs-md); line-height:1.8}
+  #btn-sample-empty{font-size:var(--fs-lg); padding:9px 22px; background:var(--amber); color:var(--on-amber);
+    border:1px solid var(--amber); border-radius:var(--r-md); font-weight:600; cursor:pointer}
+  #btn-sample-empty:hover{background:var(--amber2)}
+  #splitline{position:absolute; top:0; bottom:0; width:2px; background:var(--amber);
+    cursor:ew-resize; display:none; z-index:5}
+  #splitline::after{content:"◂ ▸"; position:absolute; top:50%; left:50%;
+    transform:translate(-50%,-50%); background:var(--amber); color:var(--on-amber);
+    font-size:var(--fs-xs); padding:2px var(--sp5); border-radius:10px; white-space:nowrap; line-height:1.4}
+  .chip{position:absolute; z-index:4; font-size:var(--fs-sm); padding:2px var(--sp4);
+    background:var(--overlay); border:1px solid var(--line); border-radius:var(--r-sm);
+    color:var(--dim); display:none}
+  /* R16：分屏时左上角被「查看方式浮层」占据，「效果」标签下移到浮层之下（浮层常驻） */
+  #chip-eff{left:20px;top:56px} #chip-orig{right:20px;top:20px}
+  /* R16：预览浮层——左上角「查看方式」常驻分段控件（对比开关左移固定）+ 右下角配方 HUD。
+     绝对定位不占布局流（既有 E2E 坐标断言不受影响）；pointer-events 只在自身控件上，
+     不挡画布拖拽与分屏拖柄（z 低于 #splitline，拖柄从浮层上方划过仍可拖）。 */
+  #viewhud{
+    position:absolute; left:14px; top:14px; z-index:4; display:flex; align-items:stretch;
+    background:var(--overlay); border:1px solid var(--line); border-radius:var(--r-md);
+    padding:var(--sp1); pointer-events:none;
+  }
+  #viewhud[hidden]{display:none}
+  #viewhud .seg-btn{flex:0 0 auto; pointer-events:auto; padding:2px var(--sp4); font-size:var(--fs-xs)}
+  #hud{
+    position:absolute; right:14px; bottom:14px; z-index:4; display:flex; align-items:center;
+    gap:var(--sp2); max-width:70%;
+    background:var(--overlay); border:1px solid var(--line); border-radius:var(--r-md);
+    padding:var(--sp1) var(--sp2); pointer-events:none;
+  }
+  #hud[hidden]{display:none}
+  #hud.off #hud-body{display:none}
+  #hud-body{
+    display:flex; align-items:center; gap:var(--sp2); white-space:nowrap; overflow:hidden;
+    font:var(--fs-xs)/1.5 var(--font-mono); color:var(--dim);
+  }
+  #hud-body b{color:var(--amber2); font-weight:600}
+  #hud-toggle{
+    pointer-events:auto; flex:0 0 auto; background:transparent; border:0;
+    padding:1px var(--sp2); font-size:var(--fs-xs); color:var(--dim);
+  }
+  /* R16：组级「重置本组」小按钮（④参数组 summary 右缘） */
+  .greset{flex:0 0 auto; font-size:var(--fs-xs); padding:1px var(--sp3); border-radius:var(--r-sm); color:var(--dim)}
+  #dropmask{position:absolute; inset:0; display:none; align-items:center; justify-content:center;
+    background:var(--overlay-soft); color:var(--amber); font-size:var(--fs-xxl); z-index:10;
+    border:2px dashed var(--amber); pointer-events:none}
+  #smokelog{
+    position:absolute; left:var(--sp6); bottom:var(--sp6); z-index:8; display:none;
+    background:var(--overlay2); border:1px solid var(--line); border-radius:var(--r-md);
+    color:var(--ok); font:var(--fs-sm)/1.7 var(--font-mono);
+    padding:var(--sp3) var(--sp5); max-width:46vw; white-space:pre-wrap;
+  }
+  /* ---------- 右侧面板 ---------- */
+  #panel{
+    flex:0 0 372px; overflow-y:auto; background:var(--panel);
+    border-left:1px solid var(--line); padding:var(--sp5) var(--sp6) 30px;
+  }
+  #panel::-webkit-scrollbar{width:8px}
+  #panel::-webkit-scrollbar-thumb{background:var(--line); border-radius:var(--r-md)}
+  .row{display:flex; gap:var(--sp4); align-items:center; margin:var(--sp3) 0}
+  .row select,.row button{flex:1}
+  select,button,input[type=text]{
+    background:var(--panel2); color:var(--text); border:1px solid var(--line);
+    border-radius:var(--r-md); padding:5px var(--sp4); font:inherit;
+  }
+  button{cursor:pointer} button:hover{border-color:var(--amber); color:var(--amber2)}
+  button.primary{background:var(--amber); border-color:var(--amber); color:var(--on-amber); font-weight:600}
+  button.primary:hover{background:var(--amber2); color:var(--on-amber)}
+  button:disabled{opacity:.45; cursor:not-allowed; border-color:var(--line); color:var(--dim)}
+  button.mini{padding:2px var(--sp4); font-size:var(--fs-md); flex:0 0 auto}
+  /* A/B 视图分段控件（原图 / 调色 / 分屏 / 隔离） */
+  .seg{display:flex; flex:1; border:1px solid var(--line); border-radius:var(--r-md); overflow:hidden}
+  .seg-btn{flex:1; border:0; border-right:1px solid var(--line); background:transparent; color:var(--dim);
+    font-size:var(--fs-sm); padding:5px var(--sp2); cursor:pointer; transition:all var(--dur-fast)}
+  .seg-btn:last-child{border-right:0}
+  .seg-btn:hover{color:var(--amber2)}
+  .seg-btn.on{background:var(--amber-a12); color:var(--amber2); font-weight:600}
+  details.group{border:1px solid var(--line); border-radius:var(--r-lg); margin:var(--sp4) 0; background:var(--panel2)}
+  details.group summary{
+    padding:7px var(--sp5); cursor:pointer; user-select:none; font-weight:600;
+    display:flex; align-items:center; gap:var(--sp4); list-style:none;
+  }
+  details.group summary::-webkit-details-marker{display:none}
+  details.group summary .arrow{color:var(--dim); transition:transform var(--dur-fast); display:inline-block}
+  details.group[open] summary .arrow{transform:rotate(90deg)}
+  details.group .body{padding:2px var(--sp5) var(--sp5)}
+  .stepnum{display:inline-block; min-width:16px; height:16px; line-height:16px; text-align:center;
+    background:var(--amber); color:var(--on-amber); border-radius:50%; font-size:var(--fs-sm); font-weight:700}
+  .gtitle-en{color:var(--dim); font-weight:400; font-size:var(--fs-sm); margin-left:auto}
+  /* R14-B：色彩匹配「不适用」状态徽标（匹配不可用时可见） */
+  .gstatus{color:var(--err); font-weight:400; font-size:var(--fs-sm); border:1px solid var(--line);
+    border-radius:var(--r-pill); padding:0 var(--sp3); background:var(--panel)}
+  /* R14-B：匹配不可用时组内说明行（为什么没反应 / 怎么才能用匹配） */
+  .gnote{color:var(--dim); font-size:var(--fs-sm); line-height:1.6; border-left:2px solid var(--amber);
+    padding:var(--sp2) var(--sp3); margin:var(--sp3) 0; background:var(--bg); border-radius:0 var(--r-sm) var(--r-sm) 0}
+  .onoff{width:14px; height:14px; accent-color:var(--amber)}
+  .param{display:grid; grid-template-columns:80px 1fr 58px 14px; gap:7px; align-items:center; margin:var(--sp2) 0}
+  .param label{color:var(--dim); font-size:var(--fs-md); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .param label.scrub{cursor:ew-resize; user-select:none}
+  .param input[type=range]{width:100%; accent-color:var(--amber); height:18px}
+  /* R14-B：禁用态（匹配不可用）——灰化走令牌，不硬编码颜色 */
+  .param input[type=range]:disabled{accent-color:var(--dim); opacity:.45; cursor:not-allowed}
+  .param input[type=color]:disabled{opacity:.45; cursor:not-allowed}
+  .param:has(input:disabled) label{color:var(--dim); opacity:.6}
+  .param:has(input:disabled) output{color:var(--dim); opacity:.6}
+  .param:has(input:disabled) label.scrub{cursor:not-allowed}
+  .param output{font-size:var(--fs-sm); color:var(--text); font-variant-numeric:tabular-nums; text-align:right; cursor:text}
+  .param .numedit{width:58px; font-size:var(--fs-sm); padding:1px var(--sp1); text-align:right}
+  .param input[type=color]{width:100%; height:20px; border:1px solid var(--line); background:none; padding:0; cursor:pointer}
+  .odot{width:8px; height:8px; border-radius:50%; display:inline-block; justify-self:center}
+  .o-annotated{background:var(--ann)} .o-estimated{background:var(--est)} .o-user{background:var(--ok)}
+  .legend{color:var(--dim); font-size:var(--fs-sm); margin:var(--sp4) var(--sp1); display:flex; gap:var(--sp6); flex-wrap:wrap}
+  .legend i{display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:var(--sp2)}
+  .note{color:var(--dim); font-size:var(--fs-sm); margin:var(--sp3) var(--sp1); line-height:1.6}
+  /* tab */
+  .tabs{display:flex; gap:var(--sp2); margin:var(--sp4) 0 2px}
+  .tab{flex:1; text-align:center; padding:var(--sp3) var(--sp2); border:1px solid var(--line); border-radius:var(--r-md) var(--r-md) 0 0;
+    color:var(--dim); cursor:pointer; font-size:var(--fs-md); background:transparent; user-select:none}
+  .tab.on{color:var(--amber2); border-color:var(--amber); border-bottom-color:transparent; font-weight:600}
+  .tabbody{border:1px solid var(--line); border-radius:0 var(--r-md) var(--r-md) var(--r-md); padding:var(--sp4); min-height:56px}
+  /* 图库网格 */
+  .grid{display:grid; grid-template-columns:repeat(3, 1fr); gap:var(--sp4)}
+  /* R2 矩阵选择器 + 标签筛选（选型号页） */
+  .mx{margin:var(--sp4) 0 2px; padding:var(--sp3) 7px; border:1px solid var(--line); border-radius:var(--r-lg); background:var(--panel)}
+  .mx-row{display:flex; align-items:flex-start; gap:var(--sp3); margin:var(--sp2) 0}
+  .mx-lab{flex:0 0 46px; color:var(--dim); font-size:var(--fs-sm); padding-top:3px}
+  .mx-btns{display:flex; flex-wrap:wrap; gap:var(--sp2); flex:1}
+  .mx-btn{font-size:var(--fs-sm); padding:2px var(--sp4); border:1px solid var(--line); border-radius:10px;
+    background:var(--panel2); color:var(--dim); cursor:pointer}
+  .mx-btn:hover{border-color:var(--amber); color:var(--amber2)}
+  .mx-btn.on{border-color:var(--amber); background:var(--amber-a12); color:var(--amber2); font-weight:600}
+  .mx-note{color:var(--dim); font-size:var(--fs-sm); margin:3px var(--sp1); line-height:1.6}
+  .card{border:1px solid var(--line); border-radius:var(--r-md); overflow:hidden; cursor:pointer; background:var(--panel)}
+  .card:hover{border-color:var(--amber)}
+  .card.sel{border-color:var(--amber); box-shadow:0 0 0 1px var(--amber)}
+  .card img{width:100%; display:block; aspect-ratio:16/9; object-fit:cover; background:var(--canvas)}
+  .card.emptyimg{display:flex; align-items:center; justify-content:center; aspect-ratio:16/9;
+    color:var(--dim); font-size:var(--fs2xl); background:var(--panel2)}
+  .card .nm{font-size:var(--fs-sm); padding:var(--sp2) var(--sp3) 1px; color:var(--text); line-height:1.35;
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden}
+  .card .tag{font-size:var(--fs-xs); padding:1px var(--sp3) 5px; color:var(--dim)}
+  .card .tag .o-annotated,.card .tag .o-estimated{display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:3px}
+  /* 配方摘要 */
+  #recipe-summary{font-size:var(--fs-md); line-height:1.9; color:var(--text)}
+  #recipe-summary .k{color:var(--dim); display:inline-block; width:64px}
+  #recipe-code{color:var(--amber2); font-weight:700; letter-spacing:1px}
+  #recipe-summary .badge{font-size:var(--fs-xs); padding:1px var(--sp3); border-radius:8px; border:1px solid var(--line); color:var(--dim)}
+  .disabled-hint{color:var(--dim); font-size:var(--fs-md); padding:var(--sp3) 0}
+  /* 导出面板 */
+  #cube-hint{display:none; margin-top:var(--sp4); padding:var(--sp4) var(--sp5); border:1px solid var(--ok); border-radius:var(--r-md);
+    color:var(--ok); font-size:var(--fs-sm); line-height:1.7; background:var(--ok-a06)}
+  #reflist{width:100%}
+  #toast{position:fixed; left:50%; bottom:26px; transform:translateX(-50%); z-index:60;
+    background:var(--overlay2); border:1px solid var(--amber); color:var(--amber2);
+    padding:7px 16px; border-radius:var(--r-md); font-size:var(--fs-md); display:none; max-width:70vw}
+  #jsonbox{width:100%; height:110px; background:var(--code-bg); color:var(--code-fg); border:1px solid var(--line);
+    border-radius:var(--r-md); font:var(--fs-sm)/1.5 var(--font-mono); padding:var(--sp4); resize:vertical}
+  /* 抽屉（指南 / 标注编辑器）：固定覆盖层，不挤压布局 */
+  .drawer{position:fixed; top:0; right:-470px; width:450px; bottom:0; z-index:50;
+    background:var(--panel); border-left:1px solid var(--amber); overflow-y:auto;
+    padding:var(--sp6) var(--sp7) 30px; box-shadow:var(--sh-drawer); transition:right var(--dur-norm)}
+  .drawer.open{right:0}
+  .drawer::-webkit-scrollbar{width:8px}
+  .drawer::-webkit-scrollbar-thumb{background:var(--line); border-radius:var(--r-md)}
+  .drawer-head{display:flex; align-items:center; gap:var(--sp5); margin-bottom:var(--sp5)}
+  .drawer-head .logo{font-weight:700; color:var(--amber); letter-spacing:1px}
+  .drawer-head .sub{color:var(--dim); font-size:var(--fs-sm); flex:1}
+  .gbody{font-size:var(--fs-md); line-height:1.8; color:var(--text)}
+  .gbody code{background:var(--code-bg); border:1px solid var(--line); border-radius:var(--r-sm); padding:0 var(--sp2);
+    font:var(--fs-sm) var(--font-mono); color:var(--code-fg); word-break:break-all}
+  .gbody b{color:var(--amber2)}
+  .gtab{border-collapse:collapse; width:100%; font-size:var(--fs-sm); margin:var(--sp3) 0}
+  .gtab th,.gtab td{border:1px solid var(--line); padding:3px var(--sp3); text-align:left}
+  .gtab th{color:var(--dim); font-weight:600; background:var(--panel2)}
+  #annotate-preview{width:100%; border:1px solid var(--line); border-radius:var(--r-md); background:var(--canvas); display:block}
+  #annotate-note{width:100%; background:var(--code-bg); color:var(--code-fg); border:1px solid var(--line);
+    border-radius:var(--r-md); font:var(--fs-md)/1.6 inherit; padding:var(--sp3) var(--sp4); resize:vertical}
+  #codebox{width:100%; height:76px; background:var(--code-bg); color:var(--code-fg); border:1px solid var(--line);
+    border-radius:var(--r-md); font:var(--fs-sm)/1.5 var(--font-mono); padding:var(--sp3) var(--sp4); resize:vertical}
+  /* 图库卡片「标注」小按钮 */
+  .card{position:relative}
+  .card .editbtn{position:absolute; right:var(--sp2); top:var(--sp2); z-index:2; font-size:var(--fs-xs); padding:1px var(--sp3);
+    background:var(--overlay-soft); border:1px solid var(--line); border-radius:var(--r-sm); color:var(--dim); cursor:pointer}
+  .card .editbtn:hover{border-color:var(--amber); color:var(--amber2)}
+  /* R15：风格卡 tab 内「XMP 导入 · 估算起点」小节标题 */
+  .xmp-sec-title{font-size:var(--fs-md); color:var(--amber2); font-weight:600; margin:var(--sp6) 0 var(--sp2)}
+  #errbanner{display:none; position:fixed; left:0; right:0; bottom:0; z-index:99;
+    background:var(--err); color:var(--white); padding:var(--sp4) var(--sp7); font:var(--fs-md) var(--font-mono)}
+  h1{font-size:0; position:absolute; left:-9999px}
+
+  /* E2E 冻结模式（#freeze=1）：关掉所有过渡与动画，保证截图逐像素可复现 */
+  body.fm-freeze *, body.fm-freeze *::before, body.fm-freeze *::after{
+    transition:none !important; animation:none !important}
+</style>
+</head>
+<body>
+<h1>菲林工坊 FilmMatch 工作台：传帧、选参考、出配方、调配方、保存导出（.cube / 配方 JSON / 配方码）</h1>
+<header>
+  <span class="logo">菲林工坊</span>
+  <span class="sub">FilmMatch · 胶片观感匹配工作台</span>
+  <span class="spacer"></span>
+  <nav class="viewnav" id="viewnav">
+    <button type="button" data-view="workbench" class="on">工作台</button>
+    <button type="button" data-view="batch">批量匹配</button>
+    <button type="button" data-view="dctl">DCTL 生成</button>
+  </nav>
+  <nav class="steps" id="steps">
+    <span class="step on" id="step1">① 传帧</span>
+    <span class="step" id="step2">② 选参考</span>
+    <span class="step" id="step3">③ 出配方</span>
+    <span class="step" id="step4">④ 调配方</span>
+    <span class="step" id="step5">⑤ 保存/导出</span>
+  </nav>
+  <span class="stat" id="stat-backend" title="渲染后端">--</span>
+  <span class="stat" id="stat-res">--</span>
+  <button id="btn-mode" class="mini" type="button" title="切换简单 / 高级参数（快捷键 m）" aria-pressed="false">简单模式</button>
+  <button id="btn-guide" class="mini" title="达芬奇质感搭建指南（F13）">指南</button>
+</header>
+<main>
+ <div id="view-workbench" class="view">
+  <div id="stage">
+    <div id="filmstrip">
+      <canvas id="glcanvas" width="1280" height="720"></canvas>
+      <div id="empty">
+        <div class="big">把一帧画面放进暗房</div>
+        <button id="btn-sample-empty" type="button">载入示例帧</button>
+        <div class="hint">或拖拽 / Ctrl+V 粘贴 / 点击上传（JPEG·PNG，长边 &gt;2560 自动缩）</div>
+      </div>
+      <div id="splitline"></div>
+      <div class="chip" id="chip-eff">效果</div>
+      <div class="chip" id="chip-orig">原图</div>
+      <!-- R16：左上角常驻浮层（查看方式，与 ④ #seg-view 同一套状态）+ 右下角配方 HUD。
+           绝对定位不占布局流；未载入画面时由 main.ts 置 hidden，载入后常驻。 -->
+      <div id="viewhud" role="tablist" aria-label="查看方式（预览浮层）" hidden>
+        <button type="button" class="seg-btn on" data-mode="0" role="tab" aria-selected="true">调色</button>
+        <button type="button" class="seg-btn" data-mode="3" role="tab" aria-selected="false">隔离</button>
+        <button type="button" class="seg-btn" data-mode="2" role="tab" aria-selected="false">分屏</button>
+        <button type="button" class="seg-btn" data-mode="1" role="tab" aria-selected="false">原图</button>
+      </div>
+      <div id="hud" aria-label="配方信息" hidden>
+        <span id="hud-body"><span class="hud-k">码</span><b id="hud-code">--</b><span class="hud-k">参考</span><span id="hud-ref">--</span><span class="hud-k">范围</span><span id="hud-range" title="数据范围（Video/Legal ↔ Full/Data）：声明 .cube 导出目标，预览画面不变">--</span></span>
+        <button id="hud-toggle" type="button" aria-pressed="true" title="显示/隐藏配方信息（配方码 · 参考名 · 数据范围）">信息</button>
+      </div>
+    </div>
+    <div id="dropmask">松开以载入画面</div>
+    <div id="smokelog"></div>
+  </div>
+  <div id="panel">
+    <!-- ① 传帧 -->
+    <details class="group" open id="g-step1">
+      <summary><span class="arrow">▶</span><span class="stepnum">1</span>传帧<span class="gtitle-en">source frame</span></summary>
+      <div class="body">
+        <div class="row">
+          <button id="btn-sample" class="mini">示例帧·霓虹</button>
+          <button id="btn-sample-dusk" class="mini">示例帧·黄昏</button>
+          <button id="btn-sample-chart" class="mini">示例帧·校色卡</button>
+        </div>
+        <div class="row">
+          <button id="btn-file">上传帧…（也可拖拽 / Ctrl+V）</button>
+          <input type="file" id="file-frame" accept="image/jpeg,image/png,image/webp" hidden>
+        </div>
+        <div class="note" id="frame-info">未载入画面。示例帧为程序生成测试画面（无网络依赖）。</div>
+      </div>
+    </details>
+
+    <!-- ② 选参考 -->
+    <details class="group" id="g-step2">
+      <summary><span class="arrow">▶</span><span class="stepnum">2</span>选参考<span class="gtitle-en">reference</span></summary>
+      <div class="body">
+        <div class="tabs" id="ref-tabs" role="tablist" aria-label="参考来源">
+          <button class="tab on" data-tab="gallery" type="button" role="tab">图库</button>
+          <button class="tab" data-tab="upload" type="button" role="tab">上传参考图</button>
+          <button class="tab" data-tab="stock" type="button" role="tab">选型号</button>
+          <button class="tab" data-tab="style" type="button" role="tab">风格卡</button>
+        </div>
+        <div class="tabbody" id="tab-gallery">
+          <div class="grid" id="gallery-grid"></div>
+          <div class="row" style="margin-top:8px">
+            <button id="btn-import-ref">导入自己的参考图入库…</button>
+            <input type="file" id="file-ref" accept="image/jpeg,image/png,image/webp" hidden>
+          </div>
+          <!-- R15：XMP 预设导入入口（生成「估算起点」卡，落在风格卡 tab 的 #xmp-grid） -->
+          <div class="row" style="margin-top:8px">
+            <button id="btn-import-xmp" title="选择一个或多个 XMP 预设文件（.xmp），换算为「估算起点」卡；原文件不受影响">导入 XMP 预设…</button>
+            <input type="file" id="file-xmp" accept=".xmp" multiple hidden>
+          </div>
+        </div>
+        <div class="tabbody" id="tab-upload" style="display:none">
+          <div class="note">上传任意剧照/照片作为参考：色彩走匹配引擎，质感由算法估算起点（可改、可一键重置）。</div>
+          <div class="row">
+            <button id="btn-upload-ref">选择参考图…</button>
+            <input type="file" id="file-ref2" accept="image/jpeg,image/png,image/webp" hidden>
+          </div>
+        </div>
+        <div class="tabbody" id="tab-stock" style="display:none">
+          <div class="note">型号卡片墙：缩略图为该型号 look+质感实时渲染的同一示例帧，点卡片直出配方（色彩匹配保持中性）。</div>
+          <div class="mx" id="matrix-picker">
+            <div class="mx-row"><span class="mx-lab">画幅</span><div class="mx-btns" id="mx-format"></div></div>
+            <div class="mx-row"><span class="mx-lab">感光度</span><div class="mx-btns" id="mx-iso"></div></div>
+            <div class="mx-row"><span class="mx-lab">光晕</span><div class="mx-btns" id="mx-halation"></div></div>
+            <div class="mx-note" id="mx-summary"></div>
+          </div>
+          <div class="mx-row" style="margin:8px 0 4px"><span class="mx-lab">标签</span><div class="mx-btns" id="tagfilter"></div></div>
+          <div class="grid" id="stock-grid"></div>
+          <div class="mx-note" id="tagfilter-empty" style="display:none">没有符合该标签的型号卡，点「全部」清除筛选。</div>
+        </div>
+        <div class="tabbody" id="tab-style" style="display:none">
+          <div class="note">风格卡片墙（新维度：冲印工艺 / 时代感）：缩略图同为该风格 look+质感实时渲染的示例帧，点卡片直出配方（色彩匹配保持中性）。</div>
+          <div class="grid" id="style-grid"></div>
+          <!-- R15：XMP 导入的「估算起点」卡（图库页入口导入后落在这里；点卡直出配方，可再调校后经 ⑤ 存为自己的风格卡） -->
+          <div class="xmp-sec-title">XMP 导入 · 估算起点</div>
+          <div class="note">由 XMP 预设换算的估算起点卡：点卡片直出配方（色彩匹配保持中性），建议按卡片注释人工调校后，经 ⑤ 保存/导出存为自己的风格卡。</div>
+          <div class="grid" id="xmp-grid"></div>
+          <div class="note" id="xmp-empty">尚未导入。到「图库」页点「导入 XMP 预设…」选择 .xmp 文件（可多选）。</div>
+        </div>
+        <div class="legend">
+          <span><i class="o-annotated"></i>图库标注</span>
+          <span><i class="o-estimated"></i>算法估算</span>
+          <span><i class="o-user"></i>用户手调</span>
+        </div>
+      </div>
+    </details>
+
+    <!-- ③ 出配方 -->
+    <details class="group" id="g-step3">
+      <summary><span class="arrow">▶</span><span class="stepnum">3</span>出配方<span class="gtitle-en">recipe</span></summary>
+      <div class="body">
+        <div id="recipe-summary"><div class="disabled-hint">载入画面并选定参考后，引擎自动合成配方（色彩匹配 + 质感 + look）。</div></div>
+      </div>
+    </details>
+
+    <!-- ④ 调配方 -->
+    <details class="group" id="g-step4">
+      <summary><span class="arrow">▶</span><span class="stepnum">4</span>调配方<span class="gtitle-en">fine-tune</span></summary>
+      <div class="body">
+        <div class="row">
+          <div class="seg" id="seg-view" role="tablist" aria-label="预览查看方式">
+            <button type="button" class="seg-btn on" data-mode="0" role="tab" aria-selected="true">调色</button>
+            <button type="button" class="seg-btn" data-mode="3" role="tab" aria-selected="false">隔离</button>
+            <button type="button" class="seg-btn" data-mode="2" role="tab" aria-selected="false">分屏</button>
+            <button type="button" class="seg-btn" data-mode="1" role="tab" aria-selected="false">原图</button>
+          </div>
+          <button id="btn-reset" class="mini" title="恢复参考选定时的初始配方">一键重置</button>
+        </div>
+        <div class="row">
+          <input type="text" id="param-search" placeholder="搜索参数（/ 聚焦）" aria-label="搜索参数" spellcheck="false">
+        </div>
+        <div id="param-groups"></div>
+        <div class="note">空间量单位：半径=画面高度%，颗粒尺寸=画面高度‰，色散=画面高度比例。ISO400=1.0×（√ 响应）。徽标：琥珀=标注 / 蓝=估算 / 绿=用户手调。<br>滑杆：拖动标签左右擦除改值 · 双击标签/滑杆复位 · 单击数值直接输入 · ←/→ 按步长微调（PageUp/PageDown 大步，Home/End 极值）。<br>快捷键：<b>v</b> 切换查看方式 · <b>a</b> A/B 分屏 · <b>m</b> 简单/高级参数 · <b>/</b> 搜索参数。</div>
+      </div>
+    </details>
+
+    <!-- ⑤ 保存/导出 -->
+    <details class="group" id="g-step5">
+      <summary><span class="arrow">▶</span><span class="stepnum">5</span>保存 / 导出<span class="gtitle-en">save &amp; export</span></summary>
+      <div class="body">
+        <div class="row">
+          <button id="btn-save" disabled>保存到本地</button>
+          <button id="btn-export-json" disabled>导出 .json</button>
+          <button id="btn-import-json" class="mini">导入 .json</button>
+          <input type="file" id="file-json" accept="application/json,.json" hidden>
+        </div>
+        <div class="row">
+          <select id="reflist" disabled title="已保存配方"><option value="">本地配方（0）</option></select>
+          <button id="btn-load" class="mini" disabled>载入</button>
+          <button id="btn-del" class="mini" disabled>删除</button>
+        </div>
+        <div class="row">
+          <button id="btn-cube" class="primary" disabled>下载 .cube（65³）</button>
+          <button id="btn-cube-dir" disabled title="Chrome/Edge 支持：选择达芬奇 LUT 目录直写">直写达芬奇 LUT 目录…</button>
+        </div>
+        <div class="row">
+          <div class="seg" id="seg-range" role="tablist" aria-label="导出数据范围">
+            <button type="button" class="seg-btn on" data-range="full" role="tab" aria-selected="true" title="Full/Data（0..1）：网页预览同域（默认）">数据范围 Full/Data</button>
+            <button type="button" class="seg-btn" data-range="legal" role="tab" aria-selected="false" title="Video/Legal：达芬奇时间线常见（10bit 64..940）；导出表自动做 Legal↔Full 包裹，预览画面不变">Video/Legal</button>
+          </div>
+        </div>
+        <div id="cube-hint"></div>
+        <div class="note">.cube 承载「色彩匹配 ∘ look」全量烘焙（65³）；质感层（光晕/颗粒/柔光/暗角）在达芬奇按节点搭建——点顶栏<b>「指南」</b>看分步教程（免费版可用）。</div>
+        <div class="row">
+          <button id="btn-copy-json" disabled>复制配方 JSON</button>
+          <button id="btn-copy-code" class="mini" disabled>复制配方码</button>
+          <button id="btn-copy-full" class="mini" disabled title="完整分享码：自带全部参数，对方粘贴即可导入">复制完整码</button>
+        </div>
+        <details class="group" id="g-import">
+          <summary><span class="arrow">▶</span>导入配方码（F11）<span class="gtitle-en">import</span></summary>
+          <div class="body">
+            <div class="note">完整码：粘贴 <b>FM1.</b> 开头的整串（自带全部参数与校验和）。短码：<b>FM-XXXX</b>（4 位，末位为校验位）需配对码本文件。</div>
+            <textarea id="codebox" spellcheck="false" placeholder="粘贴完整码（FM1.…）或短码（FM-XXXX）"></textarea>
+            <div class="row">
+              <button id="btn-import-code" class="primary">导入配方码</button>
+            </div>
+            <div class="row">
+              <button id="btn-book-export" class="mini" title="导出 短码↔配方 绑定表，随短码一起分享">导出码本 .json</button>
+              <button id="btn-book-import" class="mini">导入码本 .json</button>
+              <input type="file" id="file-book" accept="application/json,.json" hidden>
+            </div>
+          </div>
+        </details>
+        <details class="group">
+          <summary><span class="arrow">▶</span>配方 JSON（实时）</summary>
+          <div class="body"><textarea id="jsonbox" spellcheck="false"></textarea></div>
+        </details>
+      </div>
+    </details>
+  </div>
+ </div>
+
+ <!-- 批量匹配（F14）：多帧逐段 CDL + 统一风格层；控制器 src/ui/batch.ts -->
+ <div id="view-batch" class="view" hidden>
+  <div class="viewpage" id="batch-page"></div>
+ </div>
+
+ <!-- DCTL 生成：配方 → 对数域 look 数学 → .dctl 源码；控制器 src/ui/dctlpage.ts -->
+ <div id="view-dctl" class="view" hidden>
+  <div class="viewpage" id="dctl-page"></div>
+ </div>
+</main>
+<div id="toast"></div>
+<div id="guide-drawer" class="drawer"></div>
+<div id="annotate-drawer" class="drawer"></div>
+<div id="e2e-meta" hidden></div>
+<div id="errbanner"></div>
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>

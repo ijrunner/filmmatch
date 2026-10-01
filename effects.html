@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>菲林工坊 · FilmMatch 效果层预览</title>
+<!--
+  FilmMatch 效果层开发预览（App B / 效果规格 v1 验收）
+  模块化管线：app/src/film/pipeline.ts（WebGL2 → WebGL1 → CPU 三后端）
+  URL hash：#preset=neutral|fl04|fl05|fl06|fl07|fl08  #scene=neon|dusk|chart
+            #mode=0|1|2  #split=0.5  #freeze=1  #t=0.5（颗粒相位秒）
+            #bare=1（纯画面 1:1，供截图测量）  #bench=1  #rs=0.5（CPU 内部精度）
+            #tight=0 / #wide=0（H2 紧晕/宽晕开关对比）
+            #p.<组>.<字段>=值（参数覆盖，如 #p.grain.iso=1600&#p.bloom.enabled=0）
+-->
+<style>
+  :root{
+    --bg:#141210; --panel:#1d1a15; --panel2:#242019; --line:#373023;
+    --text:#d8d0c2; --dim:#8a7f6d; --amber:#e8a33d; --amber2:#f5c069;
+    --ok:#67c26a; --est:#5b9dd9; --ann:#e8a33d; --err:#e06c5a;
+  }
+  *{box-sizing:border-box; margin:0; padding:0}
+  html,body{height:100%}
+  body{
+    background:var(--bg); color:var(--text);
+    font:13px/1.5 "PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;
+    display:flex; flex-direction:column; overflow:hidden;
+  }
+  header{
+    display:flex; align-items:center; gap:14px; padding:8px 14px;
+    background:var(--panel); border-bottom:1px solid var(--line); flex:0 0 auto;
+  }
+  header .logo{font-weight:700; color:var(--amber); letter-spacing:1px}
+  header .sub{color:var(--dim)}
+  header .spacer{flex:1}
+  .stat{color:var(--dim); font-variant-numeric:tabular-nums; white-space:nowrap}
+  .stat b{color:var(--text); font-weight:600}
+  #stat-fps b{color:var(--amber)}
+  #spark{background:var(--panel2); border:1px solid var(--line); border-radius:3px}
+  main{flex:1; display:flex; min-height:0}
+  #stage{
+    flex:1; min-width:0; display:flex; align-items:center; justify-content:center;
+    padding:16px; position:relative; overflow:auto;
+  }
+  #filmstrip{
+    position:relative; display:inline-block; line-height:0;
+    background:#000; padding:14px 10px; border-radius:4px;
+    box-shadow:0 4px 24px rgba(0,0,0,.5);
+  }
+  #filmstrip::before,#filmstrip::after{
+    content:""; position:absolute; left:0; right:0; height:10px;
+    background:repeating-linear-gradient(90deg,
+      transparent 0 7px, #2a251d 7px 15px, transparent 15px 22px);
+  }
+  #filmstrip::before{top:2px} #filmstrip::after{bottom:2px}
+  #glcanvas{max-width:100%; max-height:calc(100vh - 150px); display:block; background:#000}
+  #stage.one2one #glcanvas{max-width:none; max-height:none}
+  #stage.one2one{justify-content:flex-start}
+  #splitline{position:absolute; top:0; bottom:0; width:2px; background:var(--amber);
+    cursor:ew-resize; display:none; z-index:5}
+  #splitline::after{content:"◂ ▸"; position:absolute; top:50%; left:50%;
+    transform:translate(-50%,-50%); background:var(--amber); color:#141210;
+    font-size:10px; padding:2px 5px; border-radius:10px; white-space:nowrap; line-height:1.4}
+  .chip{position:absolute; z-index:4; font-size:11px; padding:2px 8px;
+    background:rgba(20,18,16,.75); border:1px solid var(--line); border-radius:3px;
+    color:var(--dim); display:none}
+  #chip-eff{left:20px;top:20px} #chip-orig{right:20px;top:20px}
+  #dropmask{position:absolute; inset:0; display:none; align-items:center; justify-content:center;
+    background:rgba(20,18,16,.85); color:var(--amber); font-size:16px; z-index:10;
+    border:2px dashed var(--amber); pointer-events:none}
+  #panel{
+    flex:0 0 330px; overflow-y:auto; background:var(--panel);
+    border-left:1px solid var(--line); padding:10px 12px 30px;
+  }
+  #panel::-webkit-scrollbar{width:8px}
+  #panel::-webkit-scrollbar-thumb{background:var(--line); border-radius:4px}
+  .row{display:flex; gap:8px; align-items:center; margin:6px 0}
+  .row select,.row button{flex:1}
+  select,button,input[type=text]{
+    background:var(--panel2); color:var(--text); border:1px solid var(--line);
+    border-radius:4px; padding:5px 8px; font:inherit;
+  }
+  button{cursor:pointer} button:hover{border-color:var(--amber); color:var(--amber2)}
+  button.mini{padding:2px 8px; font-size:12px; flex:0 0 auto}
+  details.group{border:1px solid var(--line); border-radius:5px; margin:8px 0; background:var(--panel2)}
+  details.group summary{
+    padding:7px 10px; cursor:pointer; user-select:none; font-weight:600;
+    display:flex; align-items:center; gap:8px; list-style:none;
+  }
+  details.group summary::-webkit-details-marker{display:none}
+  details.group summary .arrow{color:var(--dim); transition:transform .15s; display:inline-block}
+  details.group[open] summary .arrow{transform:rotate(90deg)}
+  details.group .body{padding:2px 10px 10px}
+  .gtitle-en{color:var(--dim); font-weight:400; font-size:11px; margin-left:auto}
+  .onoff{width:14px; height:14px; accent-color:var(--amber)}
+  .param{display:grid; grid-template-columns:86px 1fr 52px 14px; gap:7px; align-items:center; margin:4px 0}
+  .param label{color:var(--dim); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .param input[type=range]{width:100%; accent-color:var(--amber); height:18px}
+  .param output{font-size:11px; color:var(--text); font-variant-numeric:tabular-nums; text-align:right}
+  .param input[type=color]{width:100%; height:20px; border:1px solid var(--line); background:none; padding:0; cursor:pointer}
+  .odot{width:8px; height:8px; border-radius:50%; display:inline-block; justify-self:center}
+  .o-annotated{background:var(--ann)} .o-estimated{background:var(--est)} .o-user{background:var(--ok)}
+  .legend{color:var(--dim); font-size:11px; margin:8px 2px; display:flex; gap:12px; flex-wrap:wrap}
+  .legend i{display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:4px}
+  .note{color:var(--dim); font-size:11px; margin:6px 2px; line-height:1.6}
+  #jsonbox{width:100%; height:180px; background:#100e0b; color:#b9ae99; border:1px solid var(--line);
+    border-radius:4px; font:11px/1.5 ui-monospace,Menlo,Consolas,monospace; padding:8px; resize:vertical}
+  #errbanner{display:none; position:fixed; left:0; right:0; bottom:0; z-index:99;
+    background:var(--err); color:#fff; padding:8px 14px; font:12px ui-monospace,monospace}
+  #bench{position:fixed; top:44px; left:50%; transform:translateX(-50%); z-index:99;
+    background:rgba(20,18,16,.92); border:1px solid var(--amber); color:var(--amber2);
+    padding:6px 14px; border-radius:4px; font:12px ui-monospace,monospace; display:none; max-width:80vw}
+  /* 纯画面模式（#bare=1）：canvas 固定视口左上 1:1，保留最小信息角标 */
+  body.bare header, body.bare #panel{display:none}
+  body.bare #stage{padding:0; display:block; overflow:hidden}
+  body.bare #filmstrip{padding:0; box-shadow:none; border-radius:0}
+  body.bare #filmstrip::before, body.bare #filmstrip::after{display:none}
+  body.bare #glcanvas{max-width:none; max-height:none}
+  #barebadge{display:none; position:fixed; left:50%; top:8px; transform:translateX(-50%); z-index:20;
+    background:rgba(20,18,16,.8); border:1px solid var(--line); border-radius:3px;
+    color:var(--amber2); font:11px/1.5 ui-monospace,monospace; padding:3px 8px; pointer-events:none}
+  body.bare #barebadge{display:block}
+  h1{font-size:0; position:absolute; left:-9999px}
+</style>
+</head>
+<body>
+<h1>菲林工坊 FilmMatch 效果层预览：光晕（双半径）、颗粒（多尺度金字塔）、柔光、暗角色散、曲线家族</h1>
+<header>
+  <span class="logo">菲林工坊</span>
+  <span class="sub">效果层 · 质感预览（效果规格 v1）</span>
+  <span class="spacer"></span>
+  <canvas id="spark" width="120" height="26"></canvas>
+  <span class="stat" id="stat-fps"><b>--</b> fps</span>
+  <span class="stat" id="stat-ms">-- ms</span>
+  <span class="stat" id="stat-res">--</span>
+  <span class="stat" id="stat-gpu" title="渲染后端">--</span>
+</header>
+<main>
+  <div id="stage">
+    <div id="filmstrip">
+      <canvas id="glcanvas" width="16" height="9"></canvas>
+      <div id="splitline"></div>
+      <div class="chip" id="chip-eff">效果</div>
+      <div class="chip" id="chip-orig">原图</div>
+    </div>
+    <div id="dropmask">松开以载入画面</div>
+  </div>
+  <div id="panel">
+    <div class="row">
+      <select id="sel-scene" title="内置测试帧">
+        <option value="neon">测试帧 · 霓虹夜景</option>
+        <option value="dusk">测试帧 · 黄昏逆光</option>
+        <option value="chart">测试帧 · 校色卡</option>
+        <option value="blown">测试帧 · 过曝（R1 测量）</option>
+      </select>
+      <button id="btn-file" class="mini" title="或直接拖拽 / Ctrl+V 粘贴">上传帧…</button>
+      <input type="file" id="file" accept="image/*" hidden>
+    </div>
+    <div class="row">
+      <select id="sel-mode">
+        <option value="0">查看 · 效果</option>
+        <option value="2">查看 · 分屏对比</option>
+        <option value="1">查看 · 原图</option>
+      </select>
+      <select id="sel-preset" title="配方预设">
+        <option value="neutral">配方 · 默认中性</option>
+        <option value="fl04">配方 · FL-04 印相</option>
+        <option value="fl05">配方 · FL-05 光匣</option>
+        <option value="fl06">配方 · FL-06 晨负</option>
+        <option value="fl07">配方 · FL-07 灯下</option>
+        <option value="fl08">配方 · FL-08 褪色</option>
+      </select>
+    </div>
+    <div class="row">
+      <button id="btn-anim" class="mini">⏸ 暂停颗粒动画</button>
+      <button id="btn-100" class="mini">100% 查看</button>
+      <button id="btn-copy" class="mini">复制配方 JSON</button>
+    </div>
+    <div id="groups"></div>
+    <div class="legend">
+      <span><i class="o-annotated"></i>图库标注</span>
+      <span><i class="o-estimated"></i>算法估算</span>
+      <span><i class="o-user"></i>用户手调</span>
+    </div>
+    <div class="note">
+      空间量单位：半径=画面高度%，颗粒尺寸=画面高度‰，色散=画面高度比例（0.004≈1080p 角落 4px）。
+      颗粒亮度分带先验：高光 0.85 以上几乎无颗粒、中间调 0.43 起衰减；ISO400=1.0×（√ 响应）。
+      「复古褪色」等 look 段为色彩层参数（正式版烘焙进 LUT，不在质感节点内）。
+    </div>
+    <details class="group" open>
+      <summary><span class="arrow">▶</span>配方 JSON（实时）</summary>
+      <div class="body">
+        <textarea id="jsonbox" spellcheck="false"></textarea>
+      </div>
+    </details>
+  </div>
+</main>
+<div id="barebadge">--</div>
+<div id="bench"></div>
+<div id="errbanner"></div>
+<script type="module" src="/src/film/dev.ts"></script>
+</body>
+</html>

@@ -1,0 +1,297 @@
+// FilmMatch 菲林工坊 · 达芬奇 DCTL 合成采样探针（诊断用，不是配方产物）
+// 变量①采样次数：抽头 28 个 × RGB = 84 次 _tex2D
+// 变量②代码结构：抽头包在 if (FM_PROBE_ON > 0.5f) 里
+// 实机结论：三种结构都能正常出效果 → 采样次数与 if 都不是闪退原因
+DEFINE_UI_PARAMS(FM_PROBE_ON, Probe On, DCTLUI_SLIDER_FLOAT, 1.0f, 0.0f, 1.0f, 0.01f)
+__DEVICE__ int fm_clampi(int x, int n) { return x < 0 ? 0 : (x > n - 1 ? n - 1 : x); }
+__DEVICE__ float fm_smoothstep(float a, float b, float x) { float t = (x - a) / (b - a); t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t); return t * t * (3.0f - 2.0f * t); }
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, __TEXTURE__ p_TexR, __TEXTURE__ p_TexG, __TEXTURE__ p_TexB)
+{
+    float3 acc = make_float3(0.0f, 0.0f, 0.0f);
+    float wsum = 0.0f;
+    if (FM_PROBE_ON > 0.5f) {
+    {
+        int xx = fm_clampi(p_X + (-6), p_Width);
+        int yy = fm_clampi(p_Y + (-6), p_Height);
+        float3 tc = make_float3(_tex2D(p_TexR, xx, yy), _tex2D(p_TexG, xx, yy), _tex2D(p_TexB, xx, yy));
+        float mx = tc.x > tc.y ? tc.x : tc.y; mx = mx > tc.z ? mx : tc.z;
+        float bw = 0.25f + 0.75f * fm_smoothstep(0.5f, 1.0f, mx);
+        float gw = 1.000000f;
+        acc = make_float3(acc.x + tc.x * (bw * gw), acc.y + tc.y * (bw * gw), acc.z + tc.z * (bw * gw));
+        wsum = wsum + gw;
+    }
+    {
+        int xx = fm_clampi(p_X + (-3), p_Width);
+        int yy = fm_clampi(p_Y + (-6), p_Height);
+        float3 tc = make_float3(_tex2D(p_TexR, xx, yy), _tex2D(p_TexG, xx, yy), _tex2D(p_TexB, xx, yy));
+        float mx = tc.x > tc.y ? tc.x : tc.y; mx = mx > tc.z ? mx : tc.z;
+        float bw = 0.25f + 0.75f * fm_smoothstep(0.5f, 1.0f, mx);
+        float gw = 1.000000f;
+        acc = make_float3(acc.x + tc.x * (bw * gw), acc.y + tc.y * (bw * gw), acc.z + tc.z * (bw * gw));
+        wsum = wsum + gw;
+    }
+    {
+        int xx = fm_clampi(p_X + (0), p_Width);
+        int yy = fm_clampi(p_Y + (-6), p_Height);
+        float3 tc = make_float3(_tex2D(p_TexR, xx, yy), _tex2D(p_TexG, xx, yy), _tex2D(p_TexB, xx, yy));
+        float mx = tc.x > tc.y ? tc.x : tc.y; mx = mx > tc.z ? mx : tc.z;
+        float bw = 0.25f + 0.75f * fm_smoothstep(0.5f, 1.0f, mx);
+        float gw = 1.000000f;
+        acc = make_float3(acc.x + tc.x * (bw * gw), acc.y + tc.y * (bw * gw), acc.z + tc.z * (bw * gw));
+        wsum = wsum + gw;
+    }
+    {
+        int xx = fm_clampi(p_X + (3), p_Width);
+        int yy = fm_clampi(p_Y + (-6), p_Height);
+        float3 tc = make_float3(_tex2D(p_TexR, xx, yy), _tex2D(p_TexG, xx, yy), _tex2D(p_TexB, xx, yy));
+        float mx = tc.x > tc.y ? tc.x : tc.y; mx = mx > tc.z ? mx : tc.z;
+        float bw = 0.25f + 0.75f * fm_smoothstep(0.5f, 1.0f, mx);
+        float gw = 1.000000f;
+        acc = make_float3(acc.x + tc.x * (bw * gw), acc.y + tc.y * (bw * gw), acc.z + tc.z * (bw * gw));
+        wsum = wsum + gw;
+    }
+    {
+        int xx = fm_clampi(p_X + (6), p_Width);
+        int yy = fm_clampi(p_Y + (-6), p_Height);
+        float3 tc = make_float3(_tex2D(p_TexR, xx, yy), _tex2D(p_TexG, xx, yy), _tex2D(p_TexB, xx, yy));
+        float mx = tc.x > tc.y ? tc.x : tc.y; mx = mx > tc.z ? mx : tc.z;
+        float bw = 0.25f + 0.75f * fm_smoothstep(0.5f, 1.0f, mx);
+        float gw = 1.000000f;
+        acc = make_float3(acc.x + tc.x * (bw * gw), acc.y + tc.y * (bw * gw), acc.z + tc.z * (bw * gw));
+        wsum = wsum + gw;
+    }
+    {
+        int xx = fm_clampi(p_X + (9), p_Width);
+        int yy = fm_clampi(p_Y + (-6), p_Height);
+        float3 tc = make_float3(_tex2D(p_TexR, xx, yy), _tex2D(p_TexG, xx, yy), _tex2D(p_TexB, xx, yy));
+        float mx = tc.x > tc.y ? tc.x : tc.y; mx = mx > tc.z ? mx : tc.z;
+        float bw = 0.25f + 0.75f * fm_smoothstep(0.5f, 1.0f, mx);
+        float gw = 1.000000f;
+        acc = make_float3(acc.x + tc.x * (bw * gw), acc.y + tc.y * (bw * gw), acc.z + tc.z * (bw * gw));
+        wsum = wsum + gw;
+    }
+    {
+        int xx = fm_clampi(p_X + (-6), p_Width);
+        int yy = fm_clampi(p_Y + (-3), p_Height);
+        float3 tc = make_float3(_tex2D(p_TexR, xx, yy), _tex2D(p_TexG, xx, yy), _tex2D(p_TexB, xx, yy));
+        float mx = tc.x > tc.y ? tc.x : tc.y; mx = mx > tc.z ? mx : tc.z;
+        float bw = 0.25f + 0.75f * fm_smoothstep(0.5f, 1.0f, mx);
+        float gw = 1.000000f;
+        acc = make_float3(acc.x + tc.x * (bw * gw), acc.y + tc.y * (bw * gw), acc.z + tc.z * (bw * gw));
+        wsum = wsum + gw;
+    }
+    {
+        int xx = fm_clampi(p_X + (-3), p_Width);
+        int yy = fm_clampi(p_Y + (-3), p_Height);
+        float3 tc = make_float3(_tex2D(p_TexR, xx, yy), _tex2D(p_TexG, xx, yy), _tex2D(p_TexB, xx, yy));
+        float mx = tc.x > tc.y ? tc.x : tc.y; mx = mx > tc.z ? mx : tc.z;
+        float bw = 0.25f + 0.75f * fm_smoothstep(0.5f, 1.0f, mx);
+        float gw = 1.000000f;
+        acc = make_float3(acc.x + tc.x * (bw * gw), acc.y + tc.y * (bw * gw), acc.z + tc.z * (bw * gw));
+        wsum = wsum + gw;
+    }
+    {
+        int xx = fm_clampi(p_X + (0), p_Width);
+        int yy = fm_clampi(p_Y + (-3), p_Height);
+        float3 tc = make_float3(_tex2D(p_TexR, xx, yy), _tex2D(p_TexG, xx, yy), _tex2D(p_TexB, xx, yy));
+        float mx = tc.x > tc.y ? tc.x : tc.y; mx = mx > tc.z ? mx : tc.z;
+        float bw = 0.25f + 0.75f * fm_smoothstep(0.5f, 1.0f, mx);
+        float gw = 1.000000f;
+        acc = make_float3(acc.x + tc.x * (bw * gw), acc.y + tc.y * (bw * gw), acc.z + tc.z * (bw * gw));
+        wsum = wsum + gw;
+    }
+    {
+        int xx = fm_clampi(p_X + (3), p_Width);
+        int yy = fm_clampi(p_Y + (-3), p_Height);
+        float3 tc = make_float3(_tex2D(p_TexR, xx, yy), _tex2D(p_TexG, xx, yy), _tex2D(p_TexB, xx, yy));
+        float mx = tc.x > tc.y ? tc.x : tc.y; mx = mx > tc.z ? mx : tc.z;
+        float bw = 0.25f + 0.75f * fm_smoothstep(0.5f, 1.0f, mx);
+        float gw = 1.000000f;
+        acc = make_float3(acc.x + tc.x * (bw * gw), acc.y + tc.y * (bw * gw), acc.z + tc.z * (bw * gw));
+        wsum = wsum + gw;
+    }
+    {
+        int xx = fm_clampi(p_X + (6), p_Width);
+        int yy = fm_clampi(p_Y + (-3), p_Height);
+        float3 tc = make_float3(_tex2D(p_TexR, xx, yy), _tex2D(p_TexG, xx, yy), _tex2D(p_TexB, xx, yy));
+        float mx = tc.x > tc.y ? tc.x : tc.y; mx = mx > tc.z ? mx : tc.z;
+        float bw = 0.25f + 0.75f * fm_smoothstep(0.5f, 1.0f, mx);
+        float gw = 1.000000f;
+        acc = make_float3(acc.x + tc.x * (bw * gw), acc.y + tc.y * (bw * gw), acc.z + tc.z * (bw * gw));
+        wsum = wsum + gw;
+    }
+    {
+        int xx = fm_clampi(p_X + (9), p_Width);
+        int yy = fm_clampi(p_Y + (-3), p_Height);
+        float3 tc = make_float3(_tex2D(p_TexR, xx, yy), _tex2D(p_TexG, xx, yy), _tex2D(p_TexB, xx, yy));
+        float mx = tc.x > tc.y ? tc.x : tc.y; mx = mx > tc.z ? mx : tc.z;
+        float bw = 0.25f + 0.75f * fm_smoothstep(0.5f, 1.0f, mx);
+        float gw = 1.000000f;
+        acc = make_float3(acc.x + tc.x * (bw * gw), acc.y + tc.y * (bw * gw), acc.z + tc.z * (bw * gw));
+        wsum = wsum + gw;
+    }
+    {
+        int xx = fm_clampi(p_X + (-6), p_Width);
+        int yy = fm_clampi(p_Y + (0), p_Height);
+        float3 tc = make_float3(_tex2D(p_TexR, xx, yy), _tex2D(p_TexG, xx, yy), _tex2D(p_TexB, xx, yy));
+        float mx = tc.x > tc.y ? tc.x : tc.y; mx = mx > tc.z ? mx : tc.z;
+        float bw = 0.25f + 0.75f * fm_smoothstep(0.5f, 1.0f, mx);
+        float gw = 1.000000f;
+        acc = make_float3(acc.x + tc.x * (bw * gw), acc.y + tc.y * (bw * gw), acc.z + tc.z * (bw * gw));
+        wsum = wsum + gw;
+    }
+    {
+        int xx = fm_clampi(p_X + (-3), p_Width);
+        int yy = fm_clampi(p_Y + (0), p_Height);
+        float3 tc = make_float3(_tex2D(p_TexR, xx, yy), _tex2D(p_TexG, xx, yy), _tex2D(p_TexB, xx, yy));
+        float mx = tc.x > tc.y ? tc.x : tc.y; mx = mx > tc.z ? mx : tc.z;
+        float bw = 0.25f + 0.75f * fm_smoothstep(0.5f, 1.0f, mx);
+        float gw = 1.000000f;
+        acc = make_float3(acc.x + tc.x * (bw * gw), acc.y + tc.y * (bw * gw), acc.z + tc.z * (bw * gw));
+        wsum = wsum + gw;
+    }
+    {
+        int xx = fm_clampi(p_X + (0), p_Width);
+        int yy = fm_clampi(p_Y + (0), p_Height);
+        float3 tc = make_float3(_tex2D(p_TexR, xx, yy), _tex2D(p_TexG, xx, yy), _tex2D(p_TexB, xx, yy));
+        float mx = tc.x > tc.y ? tc.x : tc.y; mx = mx > tc.z ? mx : tc.z;
+        float bw = 0.25f + 0.75f * fm_smoothstep(0.5f, 1.0f, mx);
+        float gw = 1.000000f;
+        acc = make_float3(acc.x + tc.x * (bw * gw), acc.y + tc.y * (bw * gw), acc.z + tc.z * (bw * gw));
+        wsum = wsum + gw;
+    }
+    {
+        int xx = fm_clampi(p_X + (3), p_Width);
+        int yy = fm_clampi(p_Y + (0), p_Height);
+        float3 tc = make_float3(_tex2D(p_TexR, xx, yy), _tex2D(p_TexG, xx, yy), _tex2D(p_TexB, xx, yy));
+        float mx = tc.x > tc.y ? tc.x : tc.y; mx = mx > tc.z ? mx : tc.z;
+        float bw = 0.25f + 0.75f * fm_smoothstep(0.5f, 1.0f, mx);
+        float gw = 1.000000f;
+        acc = make_float3(acc.x + tc.x * (bw * gw), acc.y + tc.y * (bw * gw), acc.z + tc.z * (bw * gw));
+        wsum = wsum + gw;
+    }
+    {
+        int xx = fm_clampi(p_X + (6), p_Width);
+        int yy = fm_clampi(p_Y + (0), p_Height);
+        float3 tc = make_float3(_tex2D(p_TexR, xx, yy), _tex2D(p_TexG, xx, yy), _tex2D(p_TexB, xx, yy));
+        float mx = tc.x > tc.y ? tc.x : tc.y; mx = mx > tc.z ? mx : tc.z;
+        float bw = 0.25f + 0.75f * fm_smoothstep(0.5f, 1.0f, mx);
+        float gw = 1.000000f;
+        acc = make_float3(acc.x + tc.x * (bw * gw), acc.y + tc.y * (bw * gw), acc.z + tc.z * (bw * gw));
+        wsum = wsum + gw;
+    }
+    {
+        int xx = fm_clampi(p_X + (9), p_Width);
+        int yy = fm_clampi(p_Y + (0), p_Height);
+        float3 tc = make_float3(_tex2D(p_TexR, xx, yy), _tex2D(p_TexG, xx, yy), _tex2D(p_TexB, xx, yy));
+        float mx = tc.x > tc.y ? tc.x : tc.y; mx = mx > tc.z ? mx : tc.z;
+        float bw = 0.25f + 0.75f * fm_smoothstep(0.5f, 1.0f, mx);
+        float gw = 1.000000f;
+        acc = make_float3(acc.x + tc.x * (bw * gw), acc.y + tc.y * (bw * gw), acc.z + tc.z * (bw * gw));
+        wsum = wsum + gw;
+    }
+    {
+        int xx = fm_clampi(p_X + (-6), p_Width);
+        int yy = fm_clampi(p_Y + (3), p_Height);
+        float3 tc = make_float3(_tex2D(p_TexR, xx, yy), _tex2D(p_TexG, xx, yy), _tex2D(p_TexB, xx, yy));
+        float mx = tc.x > tc.y ? tc.x : tc.y; mx = mx > tc.z ? mx : tc.z;
+        float bw = 0.25f + 0.75f * fm_smoothstep(0.5f, 1.0f, mx);
+        float gw = 1.000000f;
+        acc = make_float3(acc.x + tc.x * (bw * gw), acc.y + tc.y * (bw * gw), acc.z + tc.z * (bw * gw));
+        wsum = wsum + gw;
+    }
+    {
+        int xx = fm_clampi(p_X + (-3), p_Width);
+        int yy = fm_clampi(p_Y + (3), p_Height);
+        float3 tc = make_float3(_tex2D(p_TexR, xx, yy), _tex2D(p_TexG, xx, yy), _tex2D(p_TexB, xx, yy));
+        float mx = tc.x > tc.y ? tc.x : tc.y; mx = mx > tc.z ? mx : tc.z;
+        float bw = 0.25f + 0.75f * fm_smoothstep(0.5f, 1.0f, mx);
+        float gw = 1.000000f;
+        acc = make_float3(acc.x + tc.x * (bw * gw), acc.y + tc.y * (bw * gw), acc.z + tc.z * (bw * gw));
+        wsum = wsum + gw;
+    }
+    {
+        int xx = fm_clampi(p_X + (0), p_Width);
+        int yy = fm_clampi(p_Y + (3), p_Height);
+        float3 tc = make_float3(_tex2D(p_TexR, xx, yy), _tex2D(p_TexG, xx, yy), _tex2D(p_TexB, xx, yy));
+        float mx = tc.x > tc.y ? tc.x : tc.y; mx = mx > tc.z ? mx : tc.z;
+        float bw = 0.25f + 0.75f * fm_smoothstep(0.5f, 1.0f, mx);
+        float gw = 1.000000f;
+        acc = make_float3(acc.x + tc.x * (bw * gw), acc.y + tc.y * (bw * gw), acc.z + tc.z * (bw * gw));
+        wsum = wsum + gw;
+    }
+    {
+        int xx = fm_clampi(p_X + (3), p_Width);
+        int yy = fm_clampi(p_Y + (3), p_Height);
+        float3 tc = make_float3(_tex2D(p_TexR, xx, yy), _tex2D(p_TexG, xx, yy), _tex2D(p_TexB, xx, yy));
+        float mx = tc.x > tc.y ? tc.x : tc.y; mx = mx > tc.z ? mx : tc.z;
+        float bw = 0.25f + 0.75f * fm_smoothstep(0.5f, 1.0f, mx);
+        float gw = 1.000000f;
+        acc = make_float3(acc.x + tc.x * (bw * gw), acc.y + tc.y * (bw * gw), acc.z + tc.z * (bw * gw));
+        wsum = wsum + gw;
+    }
+    {
+        int xx = fm_clampi(p_X + (6), p_Width);
+        int yy = fm_clampi(p_Y + (3), p_Height);
+        float3 tc = make_float3(_tex2D(p_TexR, xx, yy), _tex2D(p_TexG, xx, yy), _tex2D(p_TexB, xx, yy));
+        float mx = tc.x > tc.y ? tc.x : tc.y; mx = mx > tc.z ? mx : tc.z;
+        float bw = 0.25f + 0.75f * fm_smoothstep(0.5f, 1.0f, mx);
+        float gw = 1.000000f;
+        acc = make_float3(acc.x + tc.x * (bw * gw), acc.y + tc.y * (bw * gw), acc.z + tc.z * (bw * gw));
+        wsum = wsum + gw;
+    }
+    {
+        int xx = fm_clampi(p_X + (9), p_Width);
+        int yy = fm_clampi(p_Y + (3), p_Height);
+        float3 tc = make_float3(_tex2D(p_TexR, xx, yy), _tex2D(p_TexG, xx, yy), _tex2D(p_TexB, xx, yy));
+        float mx = tc.x > tc.y ? tc.x : tc.y; mx = mx > tc.z ? mx : tc.z;
+        float bw = 0.25f + 0.75f * fm_smoothstep(0.5f, 1.0f, mx);
+        float gw = 1.000000f;
+        acc = make_float3(acc.x + tc.x * (bw * gw), acc.y + tc.y * (bw * gw), acc.z + tc.z * (bw * gw));
+        wsum = wsum + gw;
+    }
+    {
+        int xx = fm_clampi(p_X + (-6), p_Width);
+        int yy = fm_clampi(p_Y + (6), p_Height);
+        float3 tc = make_float3(_tex2D(p_TexR, xx, yy), _tex2D(p_TexG, xx, yy), _tex2D(p_TexB, xx, yy));
+        float mx = tc.x > tc.y ? tc.x : tc.y; mx = mx > tc.z ? mx : tc.z;
+        float bw = 0.25f + 0.75f * fm_smoothstep(0.5f, 1.0f, mx);
+        float gw = 1.000000f;
+        acc = make_float3(acc.x + tc.x * (bw * gw), acc.y + tc.y * (bw * gw), acc.z + tc.z * (bw * gw));
+        wsum = wsum + gw;
+    }
+    {
+        int xx = fm_clampi(p_X + (-3), p_Width);
+        int yy = fm_clampi(p_Y + (6), p_Height);
+        float3 tc = make_float3(_tex2D(p_TexR, xx, yy), _tex2D(p_TexG, xx, yy), _tex2D(p_TexB, xx, yy));
+        float mx = tc.x > tc.y ? tc.x : tc.y; mx = mx > tc.z ? mx : tc.z;
+        float bw = 0.25f + 0.75f * fm_smoothstep(0.5f, 1.0f, mx);
+        float gw = 1.000000f;
+        acc = make_float3(acc.x + tc.x * (bw * gw), acc.y + tc.y * (bw * gw), acc.z + tc.z * (bw * gw));
+        wsum = wsum + gw;
+    }
+    {
+        int xx = fm_clampi(p_X + (0), p_Width);
+        int yy = fm_clampi(p_Y + (6), p_Height);
+        float3 tc = make_float3(_tex2D(p_TexR, xx, yy), _tex2D(p_TexG, xx, yy), _tex2D(p_TexB, xx, yy));
+        float mx = tc.x > tc.y ? tc.x : tc.y; mx = mx > tc.z ? mx : tc.z;
+        float bw = 0.25f + 0.75f * fm_smoothstep(0.5f, 1.0f, mx);
+        float gw = 1.000000f;
+        acc = make_float3(acc.x + tc.x * (bw * gw), acc.y + tc.y * (bw * gw), acc.z + tc.z * (bw * gw));
+        wsum = wsum + gw;
+    }
+    {
+        int xx = fm_clampi(p_X + (3), p_Width);
+        int yy = fm_clampi(p_Y + (6), p_Height);
+        float3 tc = make_float3(_tex2D(p_TexR, xx, yy), _tex2D(p_TexG, xx, yy), _tex2D(p_TexB, xx, yy));
+        float mx = tc.x > tc.y ? tc.x : tc.y; mx = mx > tc.z ? mx : tc.z;
+        float bw = 0.25f + 0.75f * fm_smoothstep(0.5f, 1.0f, mx);
+        float gw = 1.000000f;
+        acc = make_float3(acc.x + tc.x * (bw * gw), acc.y + tc.y * (bw * gw), acc.z + tc.z * (bw * gw));
+        wsum = wsum + gw;
+    }
+    }
+    float k = 1.0f / (wsum > 0.0001f ? wsum : 0.0001f);
+    return make_float3(acc.x * k, acc.y * k, acc.z * k);
+}

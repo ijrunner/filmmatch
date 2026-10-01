@@ -1,0 +1,22 @@
+{
+  "at": "2026-09-23T07:24:08.121Z",
+  "mode": "realtime-cdp",
+  "events": 60,
+  "selector": "#param-groups details[data-group=\"look\"] input[type=range]",
+  "bakeCount": 2,
+  "voxelsBaked": 310562,
+  "bakesByKind": {
+    "33": 1,
+    "65": 1
+  },
+  "bakeMsTotal": 166.4,
+  "bakeMsP50": 61.6,
+  "bakeMsP95": 104.8,
+  "frameWorkP50": 0.9,
+  "frameWorkP95": 48.1,
+  "perEventWorkP50": 0.9,
+  "perEventWorkP95": 48.1,
+  "perEventWorkMean": 11.518,
+  "wallMs": 3451.2,
+  "backend": "WebGL2 · RGBA16F | ANGLE (Google, Vulkan 1.3.0 (SwiftShader"
+}

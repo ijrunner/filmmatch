@@ -1,0 +1,31 @@
+// =====================================================================
+// FilmMatch 菲林工坊 · 达芬奇 DCTL 标签 spike（spike_label_a_mixed.dctl）
+// 本文件用途：验证「中英混排标签 对比度 Contrast」在达芬奇里能否正常解析（无分组前缀、无 tooltip）；3 个参数是同一变量。
+// 对照设计：三份 spike 共用同一份 3 参数数学（增益 × 混合 + 开关），唯一变量是标签写法——
+//   A 混排标签（无前缀 / 无 tooltip）→ B 加分组前缀 → C 再加 DEFINE_UI_TOOLTIP。
+// 开关用 0/1 滑杆而不是勾选框：本文件只验证标签解析，不把「勾选框未验证」混进来。
+// 请确认：① 三个滑杆名按上面的写法显示；② 拖动时画面有响应；③ 达芬奇不报错也不闪退。
+// 用法：节点右键 → LUT → DCTL 子菜单选中本文件；换文件后必须重启达芬奇（Update Lists 不会重载已应用的 DCTL）。
+// 商标：本文件由 FilmMatch 菲林工坊 生成与维护，不含任何第三方品牌标识。
+// =====================================================================
+
+// ---- 参数面板（3 个，刻意不带 tooltip） ----
+DEFINE_UI_PARAMS(FM_SPIKE_GAIN, 对比度 Contrast, DCTLUI_SLIDER_FLOAT, 1.0000f, 0.0000f, 2.0000f, 0.01f)
+DEFINE_UI_PARAMS(FM_SPIKE_MIX, 混合 Mix, DCTLUI_SLIDER_FLOAT, 0.5000f, 0.0000f, 1.0000f, 0.01f)
+DEFINE_UI_PARAMS(FM_SPIKE_ON, 开关 Enable, DCTLUI_SLIDER_FLOAT, 1.0000f, 0.0000f, 1.0000f, 0.01f)
+
+// ---- 数学（极简：一次乘法增益 + 一次 0..1 混合，开关只控制是否应用） ----
+__DEVICE__ float fm_clamp01(float x) { return x < 0.0f ? 0.0f : (x > 1.0f ? 1.0f : x); }
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, __TEXTURE__ p_TexR, __TEXTURE__ p_TexG, __TEXTURE__ p_TexB)
+{
+    float3 c = make_float3(_tex2D(p_TexR, p_X, p_Y), _tex2D(p_TexG, p_X, p_Y), _tex2D(p_TexB, p_X, p_Y));
+    if (FM_SPIKE_ON > 0.5f) {
+        float g = FM_SPIKE_GAIN;                                  // 参数①：乘法强度
+        float m = FM_SPIKE_MIX;                                   // 参数②：0..1 混合
+        float3 amp = make_float3(c.x * g, c.y * g, c.z * g);
+        c = make_float3(c.x + (amp.x - c.x) * m,
+                        c.y + (amp.y - c.y) * m,
+                        c.z + (amp.z - c.z) * m);
+    }
+    return make_float3(fm_clamp01(c.x), fm_clamp01(c.y), fm_clamp01(c.z));
+}

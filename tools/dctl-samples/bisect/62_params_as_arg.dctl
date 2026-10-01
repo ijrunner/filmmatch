@@ -1,0 +1,15 @@
+// FilmMatch 菲林工坊 · 达芬奇 DCTL 最小复现（诊断用）
+// 本文件：参数由 transform 读出后**显式传入** helper —— 预期正常出效果
+// 背景：Resolve 只把 DEFINE_UI_PARAMS 注入 transform() 的局部作用域，
+//       官方文档原话 "This variable can be used inside the transform function."，
+//       所以 helper 里读 FM_XXX 属于未定义作用域。
+DEFINE_UI_PARAMS(FM_GAIN, Gain, DCTLUI_SLIDER_FLOAT, 1.0f, 0.0f, 2.0f, 0.01f)
+
+__DEVICE__ float fm_helper(float x, float gain) { return x * gain; }
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, __TEXTURE__ p_TexR, __TEXTURE__ p_TexG, __TEXTURE__ p_TexB)
+{
+    float3 src = make_float3(_tex2D(p_TexR, p_X, p_Y), _tex2D(p_TexG, p_X, p_Y), _tex2D(p_TexB, p_X, p_Y));
+    float g = FM_GAIN;   // 参数只在 transform 里读
+    return make_float3(fm_helper(src.x, g), fm_helper(src.y, g), fm_helper(src.z, g));
+}

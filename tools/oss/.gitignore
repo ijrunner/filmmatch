@@ -1,0 +1,8 @@
+node_modules/
+dist/
+dist-*/
+*.zip
+.DS_Store
+tools/e2e/*.png
+tools/e2e/*.log
+tools/e2e/*.dom

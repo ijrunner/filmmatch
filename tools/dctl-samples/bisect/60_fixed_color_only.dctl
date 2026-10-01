@@ -1,0 +1,233 @@
+// =====================================================================
+// FilmMatch 菲林工坊 · 达芬奇 DCTL 配方
+// 配方：FL-06 晨负 · 修好的色彩管线
+// 分享码：FM-BISECT
+// 管线：YRGB / Rec.709
+//       BT.1886 EOTF → linear → log2 → 归一化（pivot 0.18→0.5）
+// 生成基准：1920×1080（半径/颗粒/色散滑杆 = 该基准 px，运行时按 p_Height/1080 缩放）
+//   光晕宽晕半径 16px（源 1.5%H）
+//   光晕紧晕半径 3px（固定 0.3%H）
+//   柔光半径 19px（源 1.8%H）
+//   颗粒间距 1.25px（源 0.975‰H）
+//   边缘色散 3.24px（源 0.003 画面高度比）
+// 模式：兼容模式（ASCII 参数标签；开关为 0/1 滑杆而非勾选框，不含 tooltip）
+// 参数标签：ascii（纯 ASCII，避开未验证字符）
+// 入口签名：纹理（__TEXTURE__ p_TexR/p_TexG/p_TexB；含邻域采样）
+// 正确加载途径：Color 页 → OpenFX/特效库 → ResolveFX Color → DCTL，再在检查器里选本文件。用「节点右键 → LUT → DCTL」加载会报 wrong argument int p_Width（纹理签名 + 参数面板不走 LUT 路径）。
+// 商标：本文件由 FilmMatch 菲林工坊 生成与维护，不含任何第三方品牌标识。
+// 采样：光晕=紧晕 3×3 + 宽晕双环（3×3@r + 外环 8@2r）、柔光=中心+4@r+4@2r，每 tap 读 R/G/B 并过完整 look；
+//       亮通阈值作用于 look 后的邻域值（与网页端同作用域）。每像素共 108 次纹理读取（R20 前为 36 次）。
+//       与网页端的残余差异见 docs/research/观感对齐清单-R9.md（v2）。
+// 注意：半径/颗粒/色散/片门滑杆均为像素语义（本文件生成基准），运行时按时间线高度自动缩放；
+//       在不同分辨率时间线（如 2160p）无需手动换算参数。
+// =====================================================================
+
+// ---- 参数面板（达芬奇 OFX 滑杆/开关；tooltip 紧跟在各自声明之后） ----
+DEFINE_UI_PARAMS(FM_CONTRAST, Contrast, DCTLUI_SLIDER_FLOAT, 1.0000f, 0.0000f, 2.0000f, 0.01f)
+DEFINE_UI_PARAMS(FM_TOE, Toe, DCTLUI_SLIDER_FLOAT, 0.0000f, 0.0000f, 1.0000f, 0.01f)
+DEFINE_UI_PARAMS(FM_SHOULDER, Shoulder, DCTLUI_SLIDER_FLOAT, 0.0000f, 0.0000f, 1.0000f, 0.01f)
+DEFINE_UI_PARAMS(FM_PIVOT, Pivot, DCTLUI_SLIDER_FLOAT, 0.5000f, 0.0000f, 1.0000f, 0.01f)
+DEFINE_UI_PARAMS(FM_CROSSTALK, Crosstalk, DCTLUI_SLIDER_FLOAT, 0.0500f, 0.0000f, 0.4000f, 0.01f)
+DEFINE_UI_PARAMS(FM_SATURATION, Saturation, DCTLUI_SLIDER_FLOAT, 0.9700f, 0.0000f, 2.0000f, 0.01f)
+DEFINE_UI_PARAMS(FM_WARMTH, Warmth, DCTLUI_SLIDER_FLOAT, 0.1000f, -1.0000f, 1.0000f, 0.01f)
+DEFINE_UI_PARAMS(FM_FADE, Fade, DCTLUI_SLIDER_FLOAT, 0.0040f, 0.0000f, 1.0000f, 0.01f)
+DEFINE_UI_PARAMS(FM_SHADOW_BIAS, Shadow Bias, DCTLUI_SLIDER_FLOAT, 0.0800f, 0.0000f, 1.0000f, 0.01f)
+DEFINE_UI_PARAMS(FM_HIGHLIGHT_BIAS, Highlight Bias, DCTLUI_SLIDER_FLOAT, 0.1500f, 0.0000f, 1.0000f, 0.01f)
+DEFINE_UI_PARAMS(FM_FILM_S, Film S, DCTLUI_SLIDER_FLOAT, 0.8000f, 0.0000f, 1.0000f, 0.01f)
+DEFINE_UI_PARAMS(FM_GAMMA_CONTRAST, Gamma Contrast, DCTLUI_SLIDER_FLOAT, 0.0000f, 0.0000f, 1.0000f, 0.01f)
+DEFINE_UI_PARAMS(FM_SPLIT_SHADOW_HUE, Split Shadow Hue, DCTLUI_SLIDER_FLOAT, 0.0000f, 0.0000f, 1.0000f, 0.01f)
+DEFINE_UI_PARAMS(FM_SPLIT_SHADOW_SAT, Split Shadow Sat, DCTLUI_SLIDER_FLOAT, 0.0000f, 0.0000f, 1.0000f, 0.01f)
+DEFINE_UI_PARAMS(FM_SPLIT_HIGHLIGHT_HUE, Split Highlight Hue, DCTLUI_SLIDER_FLOAT, 0.0000f, 0.0000f, 1.0000f, 0.01f)
+DEFINE_UI_PARAMS(FM_SPLIT_HIGHLIGHT_SAT, Split Highlight Sat, DCTLUI_SLIDER_FLOAT, 0.0000f, 0.0000f, 1.0000f, 0.01f)
+DEFINE_UI_PARAMS(FM_SPLIT_BALANCE, Split Balance, DCTLUI_SLIDER_FLOAT, 0.0000f, -1.0000f, 1.0000f, 0.01f)
+DEFINE_UI_PARAMS(FM_GATE_WEAVE_PX, Gate Weave px, DCTLUI_SLIDER_INT, 0, 0, 40, 1)
+DEFINE_UI_PARAMS(FM_GATE_WEAVE_SPEED, Gate Weave Speed, DCTLUI_SLIDER_FLOAT, 1.0000f, 0.0000f, 4.0000f, 0.01f)
+
+// ---- 内置工具（纯函数，DCTL 语法） ----
+__DEVICE__ float fm_clamp01(float x) { return x < 0.0f ? 0.0f : (x > 1.0f ? 1.0f : x); }
+__DEVICE__ float fm_mix(float a, float b, float t) { return a + (b - a) * t; }
+__DEVICE__ float fm_fract(float x) { return x - _floorf(x); }
+__DEVICE__ float3 fm_mix3(float3 a, float3 b, float t) {
+    return make_float3(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t);
+}
+__DEVICE__ float3 fm_scale3(float3 v, float k) { return make_float3(v.x * k, v.y * k, v.z * k); }
+__DEVICE__ float3 fm_add3(float3 a, float3 b) { return make_float3(a.x + b.x, a.y + b.y, a.z + b.z); }
+__DEVICE__ float3 fm_mul3(float3 a, float3 b) { return make_float3(a.x * b.x, a.y * b.y, a.z * b.z); }
+__DEVICE__ float fm_smoothstep(float a, float b, float x) {
+    float t = fm_clamp01((x - a) / (b - a));
+    return t * t * (3.0f - 2.0f * t);
+}
+__DEVICE__ float fm_luma(float3 c) { return 0.2126f * c.x + 0.7152f * c.y + 0.0722f * c.z; }
+__DEVICE__ float fm_max3(float3 c) { return _fmaxf(c.x, _fmaxf(c.y, c.z)); }
+__DEVICE__ float3 fm_split_dir(float h) {
+    float hh = fm_clamp01(h);
+    float h6 = fm_fract(hh) * 6.0f;
+    float i = _floorf(h6);
+    float f = h6 - i;
+    float q = 1.0f - f;
+    float rr = 1.0f;
+    float gg = 0.0f;
+    float bb = 0.0f;
+    if (i < 1.0f) { rr = 1.0f; gg = f; bb = 0.0f; }
+    else if (i < 2.0f) { rr = q; gg = 1.0f; bb = 0.0f; }
+    else if (i < 3.0f) { rr = 0.0f; gg = 1.0f; bb = f; }
+    else if (i < 4.0f) { rr = 0.0f; gg = q; bb = 1.0f; }
+    else if (i < 5.0f) { rr = f; gg = 0.0f; bb = 1.0f; }
+    else { rr = 1.0f; gg = 0.0f; bb = q; }
+    float ll = 0.2126f * rr + 0.7152f * gg + 0.0722f * bb;
+    return make_float3(rr - ll, gg - ll, bb - ll);
+}
+__DEVICE__ int fm_clampi(int x, int n) { return x < 0 ? 0 : (x > n - 1 ? n - 1 : x); }
+__DEVICE__ int fm_iround(float x) { return x < 0.0f ? (int)(x - 0.5f) : (int)(x + 0.5f); }
+__DEVICE__ float fm_hash12(float px, float py, float k) {
+    float x = fm_fract(px * 0.1031f);
+    float y = fm_fract(py * 0.1031f);
+    float z = fm_fract(k * 0.1031f);
+    float d = x * (y + 33.33f) + y * (z + 33.33f) + z * (x + 33.33f);
+    x = x + d; y = y + d; z = z + d;
+    return fm_fract((x + y) * z);
+}
+__DEVICE__ float fm_vnoise(float px, float py, float k) {
+    float ix = _floorf(px);
+    float iy = _floorf(py);
+    float fx = px - ix;
+    float fy = py - iy;
+    float ux = fx * fx * (3.0f - 2.0f * fx);
+    float uy = fy * fy * (3.0f - 2.0f * fy);
+    float a = fm_hash12(ix, iy, k);
+    float bb = fm_hash12(ix + 1.0f, iy, k);
+    float cc = fm_hash12(ix, iy + 1.0f, k);
+    float dd = fm_hash12(ix + 1.0f, iy + 1.0f, k);
+    return (a + (bb - a) * ux) * (1.0f - uy) + (cc + (dd - cc) * ux) * uy;
+}
+
+// ---- 管线 TF：显示编码 ↔ 归一化对数域 x∈[0,1] ----
+__DEVICE__ float fm_tf_encode(float v) {
+    float L = _powf(fm_clamp01(v), 2.4f);                       // BT.1886 EOTF（简化幂律 2.4）
+    float tt = _logf(L + 0.050625f) * 1.44269504f;  // log2（加黑位偏移保有限）
+    return fm_clamp01((tt - (-4.304006f)) * 0.22855816f);                 // 归一化：0→0 / 0.18→0.5 / 1→1
+}
+__DEVICE__ float fm_tf_decode(float x) {
+    float tt = (-4.304006f) + fm_clamp01(x) / 0.22855816f;
+    float L = _fmaxf(_expf(tt * 0.69314718f) - 0.050625f, 0.0f);
+    return fm_clamp01(_powf(L, 0.41666667f));                  // 1/2.4
+}
+
+// ---- 归一化对数域 look（与网页端 logmath.applyLogLook 同式） ----
+__DEVICE__ float fm_soft_s(float x, float pivot, float s) {
+    float p = fm_clamp01(pivot);
+    float lo = p < 0.000001f ? 0.000001f : p;
+    float hi = (1.0f - p) < 0.000001f ? 0.000001f : (1.0f - p);
+    if (x <= p) {
+        float u = fm_clamp01(x / lo);
+        float su = u * u * (3.0f - 2.0f * u);
+        return p * fm_mix(u, su, s);
+    }
+    float u = fm_clamp01((x - p) / hi);
+    float su = u * u * (3.0f - 2.0f * u);
+    return p + hi * fm_mix(u, su, s);
+}
+__DEVICE__ float fm_gamma_s(float x, float s) {
+    float su = x * x * (3.0f - 2.0f * x);
+    return fm_mix(x, su, s);
+}
+__DEVICE__ float fm_toe_shoulder(float x, float pivot, float toe, float shoulder) {
+    float p = fm_clamp01(pivot);
+    float y = x;
+    if (toe > 0.000001f && y < p && p > 0.000001f) {
+        float u = fm_clamp01(y / p);
+        y = p * _powf(u, 1.0f / (1.0f + toe));
+    }
+    if (shoulder > 0.000001f && y > p && p < 0.999999f) {
+        float u = fm_clamp01((y - p) / (1.0f - p));
+        y = p + (1.0f - p) * (1.0f - _powf(1.0f - u, 1.0f + shoulder));
+    }
+    return y;
+}
+typedef struct { float pivot, contrast, film_s, gamma_contrast, toe, shoulder; } FmChannelParams;
+typedef struct { float crosstalk, shadow_bias, highlight_bias, fade, saturation, warmth, split_sh_hue, split_sh_sat, split_hi_hue, split_hi_sat, split_balance; } FmLookParams;
+__DEVICE__ float fm_look_channel(float x, FmChannelParams p) {
+    float pivot = fm_clamp01(p.pivot);
+    float y = pivot + (x - pivot) * p.contrast;
+    y = fm_soft_s(y, pivot, p.film_s);
+    y = fm_gamma_s(y, p.gamma_contrast);
+    y = fm_toe_shoulder(y, pivot, p.toe, p.shoulder);
+    return y;
+}
+__DEVICE__ float3 fm_log_look(float3 c, FmLookParams lp, FmChannelParams cp) {
+    float3 y = make_float3(fm_look_channel(c.x, cp), fm_look_channel(c.y, cp), fm_look_channel(c.z, cp));
+    // 染料串扰（通道交叉混合；k=0 恒等；R18 六系数为烘焙常量）
+    float k = lp.crosstalk;
+    float3 d;
+    d.x = y.x * (1.0f - k) + y.y * (k * 0.55f) + y.z * (k * 0.30f);
+    d.y = y.x * (k * 0.35f) + y.y * (1.0f - k * 0.8f) + y.z * (k * 0.45f);
+    d.z = y.x * (k * 0.25f) + y.y * (k * 0.35f) + y.z * (1.0f - k * 1.6f);
+    // 分通道反向偏置（暗部青蓝 / 高光暖黄，相对量）
+    float l = fm_luma(d);
+    float sh = _powf(fm_clamp01(1.0f - l), 2.2f);
+    float hi = _powf(fm_clamp01(l), 2.2f);
+    d.x = d.x + lp.shadow_bias * (-0.10f * sh) + lp.highlight_bias * (0.10f * hi);
+    d.y = d.y + lp.shadow_bias * (0.02f * sh) + lp.highlight_bias * (0.08f * hi);
+    d.z = d.z + lp.shadow_bias * (0.16f * sh) + lp.highlight_bias * (-0.18f * hi);
+    // 分离色调（Schema v1.2）：暗部/高光色相方向 × 饱和度 × 亮度权重（sat=0 贡献为 0）
+    float spB = _fminf(1.0f, _fmaxf(-1.0f, lp.split_balance));
+    float spWS = sh * (1.0f - 0.5f * spB);
+    float spWH = hi * (1.0f + 0.5f * spB);
+    float3 sds = fm_split_dir(lp.split_sh_hue);
+    float3 sdh = fm_split_dir(lp.split_hi_hue);
+    float sss = 0.2f * lp.split_sh_sat * spWS;
+    float shs = 0.2f * lp.split_hi_sat * spWH;
+    d.x = d.x + sds.x * sss + sdh.x * shs;
+    d.y = d.y + sds.y * sss + sdh.y * shs;
+    d.z = d.z + sds.z * sss + sdh.z * shs;
+    // 褪色：黑位提升 + 白位收拢（R18：锚点重标定的对数域黑位以常量 black_extra 烘焙，默认 0 不出现）
+    float blk = lp.fade * 0.10f;
+    float wht = lp.fade * 0.08f;
+    d = make_float3(blk + fm_clamp01(d.x) * (1.0f - blk - wht),
+                    blk + fm_clamp01(d.y) * (1.0f - blk - wht),
+                    blk + fm_clamp01(d.z) * (1.0f - blk - wht));
+    // 饱和度 + 冷暖
+    float l2 = fm_luma(d);
+    d = make_float3(l2 + (d.x - l2) * lp.saturation,
+                    l2 + (d.y - l2) * lp.saturation,
+                    l2 + (d.z - l2) * lp.saturation);
+    d = make_float3(d.x * (1.0f + lp.warmth * 0.05f),
+                    d.y * (1.0f + lp.warmth * 0.01f),
+                    d.z * (1.0f - lp.warmth * 0.05f));
+    return make_float3(fm_clamp01(d.x), fm_clamp01(d.y), fm_clamp01(d.z));
+}
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, __TEXTURE__ p_TexR, __TEXTURE__ p_TexG, __TEXTURE__ p_TexB)
+{
+    float hs = (float)p_Height / 1080.0f;   // 空间量运行时缩放基准（滑杆为 1080p 基准 px）
+    float wx = 0.0f;
+    float wy = 0.0f;
+    float wSec = (float)TIMELINE_FRAME_INDEX / 24.0f;   // 秒（24fps 基准）
+    float wPh = 6.28318531f * FM_GATE_WEAVE_SPEED * wSec;
+    float wPx = (float)FM_GATE_WEAVE_PX * hs;   // 位移 px（1080p 基准，按高度缩放）
+    wx = wPx * _sinf(wPh);
+    wy = wPx * 0.6f * _sinf(wPh * 1.37f + 1.7f);   // 垂直分量 0.6 / 频率比 1.37 / 相位 1.7
+    int cx = fm_clampi(p_X + fm_iround(wx), p_Width);
+    int cy = fm_clampi(p_Y + fm_iround(wy), p_Height);
+    float3 src = make_float3(_tex2D(p_TexR, cx, cy), _tex2D(p_TexG, cx, cy), _tex2D(p_TexB, cx, cy));
+
+    // ---- 归一化对数域 look ----
+    float3 c = make_float3(fm_tf_encode(src.x), fm_tf_encode(src.y), fm_tf_encode(src.z));
+    FmChannelParams cp;
+    cp.pivot = FM_PIVOT; cp.contrast = FM_CONTRAST; cp.film_s = FM_FILM_S;
+    cp.gamma_contrast = FM_GAMMA_CONTRAST; cp.toe = FM_TOE; cp.shoulder = FM_SHOULDER;
+    FmLookParams lp;
+    lp.crosstalk = FM_CROSSTALK; lp.shadow_bias = FM_SHADOW_BIAS; lp.highlight_bias = FM_HIGHLIGHT_BIAS;
+    lp.fade = FM_FADE; lp.saturation = FM_SATURATION; lp.warmth = FM_WARMTH;
+    lp.split_sh_hue = FM_SPLIT_SHADOW_HUE; lp.split_sh_sat = FM_SPLIT_SHADOW_SAT;
+    lp.split_hi_hue = FM_SPLIT_HIGHLIGHT_HUE; lp.split_hi_sat = FM_SPLIT_HIGHLIGHT_SAT;
+    lp.split_balance = FM_SPLIT_BALANCE;
+    c = fm_log_look(c, lp, cp);
+    c = make_float3(fm_tf_decode(c.x), fm_tf_decode(c.y), fm_tf_decode(c.z));
+    float bgL = fm_luma(c);   // 背景亮度（未叠加效果前）：增益类参数按它算
+
+
+
+
+    return make_float3(fm_clamp01(c.x), fm_clamp01(c.y), fm_clamp01(c.z));
+}
