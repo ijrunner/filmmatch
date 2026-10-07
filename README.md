@@ -2,6 +2,8 @@
 
 **中文** | [English](#english)
 
+> **仓库镜像 Mirrors** · 主仓库：https://cnb.cool/cnb_edgerunner/filmmatch ｜ GitHub 镜像：https://github.com/ijrunner/filmmatch
+
 一个面向达芬奇（DaVinci Resolve）调色师的**胶片观感匹配工作台**：上传一帧画面，选参考（图库 / 自传参考图 / 胶片型号卡 / 风格卡），引擎自动合成「色彩匹配 + 光晕 + 颗粒 + 柔光 + 暗角」的完整胶片配方，实时预览、逐组微调，然后一键导回达芬奇。
 
 以**配方（Recipe）**为原子单位，而非传统 LUT：配方带版本号（Schema v1.3）、参数溯源（标注 / 估算 / 手调）与配方码分享。
